@@ -1,0 +1,124 @@
+import SwiftUI
+
+// MARK: - ViewModel mis à jour
+class MovieViewModel: ObservableObject {
+    @Published var movies: [Movie] = []
+    @Published var trendingMovies: [Movie] = [] // Films tendances
+    @Published var favorites: [Movie] = []
+    @Published var watchLater: [Movie] = []
+    @Published var searchText = ""
+    @AppStorage("isDarkMode") private var isDarkMode = false // Stockage du mode sombre
+
+    let apiKey = "TON_API_KEY_ICI"
+
+    init() {
+        fetchMovies()
+        fetchTrendingMovies() // Charge les films tendances
+    }
+    
+    func fetchMovies() {
+        fetchFromAPI(endpoint: "movie/popular") { movies in
+            self.movies = movies
+        }
+    }
+    
+    func fetchTrendingMovies() {
+        fetchFromAPI(endpoint: "trending/movie/day") { movies in
+            self.trendingMovies = movies
+        }
+    }
+    
+    private func fetchFromAPI(endpoint: String, completion: @escaping ([Movie]) -> Void) {
+        let urlString = "https://api.themoviedb.org/3/\(endpoint)?api_key=\(apiKey)&language=fr-FR"
+        guard let url = URL(string: urlString) else { return }
+        
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data = data, error == nil else { return }
+            
+            do {
+                let decodedResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
+                DispatchQueue.main.async {
+                    completion(decodedResponse.results)
+                }
+            } catch {
+                print("Erreur JSON : \(error)")
+            }
+        }.resume()
+    }
+
+    func toggleDarkMode() {
+        isDarkMode.toggle()
+    }
+    
+    var isDarkModeEnabled: Bool {
+        return isDarkMode
+    }
+}
+
+// MARK: - Vue Principale avec onglet "Tendances"
+struct MainView: View {
+    @StateObject private var viewModel = MovieViewModel()
+    
+    var body: some View {
+        TabView {
+            MoviesListView()
+                .tabItem { Label("Films", systemImage: "film") }
+            
+            TrendingMoviesView() // Nouvelle section tendances
+                .tabItem { Label("Tendances", systemImage: "flame") }
+
+            FavoritesView()
+                .tabItem { Label("Favoris", systemImage: "heart.fill") }
+
+            WatchLaterView()
+                .tabItem { Label("À voir plus tard", systemImage: "clock") }
+            
+            SettingsView() // Ajout des réglages
+                .tabItem { Label("Réglages", systemImage: "gear") }
+        }
+        .preferredColorScheme(viewModel.isDarkModeEnabled ? .dark : .light) // Mode sombre
+    }
+}
+
+// MARK: - Section Tendances
+struct TrendingMoviesView: View {
+    @StateObject private var viewModel = MovieViewModel()
+    
+    var body: some View {
+        NavigationView {
+            List(viewModel.trendingMovies) { movie in
+                NavigationLink(destination: MovieDetailView(movie: movie, viewModel: viewModel)) {
+                    MovieRow(movie: movie, viewModel: viewModel)
+                }
+            }
+            .navigationTitle("🔥 Tendances")
+        }
+    }
+}
+
+// MARK: - Vue Réglages (Mode Sombre)
+struct SettingsView: View {
+    @ObservedObject private var viewModel = MovieViewModel()
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Toggle("🌙 Mode sombre", isOn: Binding(
+                    get: { viewModel.isDarkModeEnabled },
+                    set: { _ in viewModel.toggleDarkMode() }
+                ))
+            }
+            .navigationTitle("⚙️ Réglages")
+        }
+    }
+}
+
+// MARK: - Point d’entrée de l’application
+@main
+struct MovieApp: App {
+    var body: some Scene {
+        WindowGroup {
+            MainView()
+        }
+    }
+}
